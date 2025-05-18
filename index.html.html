@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام متابعة الأقساط والدين المتأخر</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2 {
+            color: #0d6efd;
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: right;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .summary {
+            background-color: #e7f3ff;
+            font-weight: bold;
+        }
+        .payment-form {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f0f8ff;
+            border-radius: 5px;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+            margin-left: 10px;
+        }
+        input, button {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background-color: #0d6efd;
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 10px 15px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0b5ed7;
+        }
+        .actions {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .error {
+            color: red;
+            margin-top: 5px;
+        }
+        .payment-history {
+            margin-top: 30px;
+        }
+        .highlight {
+            background-color: #ffeb3b;
+        }
+        .future-date {
+            background-color: #e8f5e9;
+        }
+        @media print {
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>نظام متابعة الأقساط والدين المتأخر</h1>
+        
+        <div class="payment-form no-print">
+            <h2>إضافة دفعة جديدة</h2>
+            <div class="form-group">
+                <label for="payment-date">تاريخ الدفعة:</label>
+                <input type="date" id="payment-date" required>
+            </div>
+            <div class="form-group">
+                <label for="payment-amount">المبلغ المدفوع:</label>
+                <input type="number" id="payment-amount" placeholder="أدخل المبلغ" required>
+            </div>
+            <div class="form-group">
+                <label for="payment-notes">ملاحظات:</label>
+                <input type="text" id="payment-notes" placeholder="اختياري">
+            </div>
+            <div class="error" id="payment-error"></div>
+            <button onclick="addPayment()">إضافة الدفعة</button>
+        </div>
+        
+        <div class="summary-section">
+            <h2>ملخص الحساب</h2>
+            <table>
+                <tr>
+                    <th>القسط الشهري الحالي</th>
+                    <th>الدين المتأخر</th>
+                    <th>إجمالي المبلغ المستحق</th>
+                </tr>
+                <tr class="summary">
+                    <td id="monthly-installment">7,044.00 ريال</td>
+                    <td id="debt-arrears">14,088.00 ريال</td>
+                    <td id="total-due">21,132.00 ريال</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="payment-history">
+            <h2>سجل المعاملات</h2>
+            <table id="transactions-table">
+                <thead>
+                    <tr>
+                        <th>رقم المعاملة</th>
+                        <th>التاريخ</th>
+                        <th>النوع</th>
+                        <th>المبلغ</th>
+                        <th>القسط الشهري</th>
+                        <th>الدين المتأخر</th>
+                        <th>إجمالي المبلغ المستحق</th>
+                        <th>ملاحظات</th>
+                    </tr>
+                </thead>
+                <tbody id="transactions-body">
+                    <!-- سيتم إضافة المعاملات هنا عبر جافاسكريبت -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="actions no-print">
+            <button onclick="downloadExcel()">تحميل ملف اكسل</button>
+            <button onclick="printReport()">طباعة التقرير</button>
+            <button onclick="generateFutureInstallments()">عرض الأقساط المستقبلية (6 أشهر)</button>
+        </div>
+    </div>
+
+    <script>
+        // البيانات الأساسية
+        const monthlyInstallment = 7044;
+        const initialDebtArrears = 14088;
+        let currentMonthlyInstallment = monthlyInstallment;
+        let currentDebtArrears = initialDebtArrears;
+        
+        // مصفوفة لتخزين المعاملات
+        let transactions = [];
+        
+        // تاريخ البداية والقسط الأول
+        const initialDate = new Date('2025-04-27');
+        let today = new Date();
+        
+        // إضافة القسط الأول وتحديث الدين المتأخر عند تحميل الصفحة
+        window.onload = function() {
+            // إضافة القسط الأول (27 أبريل 2025)
+            addInstallment(initialDate);
+            
+            // إضافة الدين المتأخر كمعاملة منفصلة
+            addInitialDebt();
+            
+            // إضافة الأقساط السابقة إذا كان التاريخ الحالي بعد 27 أبريل 2025
+            addPastInstallments();
+            
+            updateSummary();
+        };
+        
+        // إضافة القسط الشهري
+        function addInstallment(date, isInitial = false, isFuture = false) {
+            const formattedDate = formatDate(date);
+            
+            const transaction = {
+                id: transactions.length + 1,
+                date: formattedDate,
+                type: 'قسط شهري',
+                amount: monthlyInstallment,
+                monthlyInstallment: monthlyInstallment,
+                debtArrears: currentDebtArrears,
+                totalDue: monthlyInstallment + currentDebtArrears,
+                notes: isFuture ? 'قسط مستقبلي' : 'قسط شهري',
+                isFuture: isFuture
+            };
+            
+            if (!isFuture) {
+                currentMonthlyInstallment = monthlyInstallment;
+            }
+            
+            transactions.push(transaction);
+            renderTransactions();
+            updateSummary();
+            
+            return transaction;
+        }
+        
+        // إضافة الدين المتأخر كمعاملة منفصلة
+        function addInitialDebt() {
+            const transaction = {
+                id: transactions.length + 1,
+                date: formatDate(initialDate),
+                type: 'دين متأخر',
+                amount: initialDebtArrears,
+                monthlyInstallment: currentMonthlyInstallment,
+                debtArrears: currentDebtArrears,
+                totalDue: currentMonthlyInstallment + currentDebtArrears,
+                notes: 'دين متأخر حتى تاريخه'
+            };
+            
+            transactions.push(transaction);
+            renderTransactions();
+        }
+        
+        // إضافة الأقساط السابقة إذا كان التاريخ الحالي بعد 27 أبريل 2025
+        function addPastInstallments() {
+            const today = new Date();
+            
+            if (today > initialDate) {
+                const currentMonth = today.getMonth();
+                const currentYear = today.getFullYear();
+                const initialMonth = initialDate.getMonth();
+                const initialYear = initialDate.getFullYear();
+                
+                // حساب عدد الأشهر بين الآن والتاريخ الأولي
+                let monthDiff = (currentYear - initialYear) * 12 + (currentMonth - initialMonth);
+                
+                // إذا كان اليوم الحالي قبل 27 من الشهر، نقلل الفرق بشهر واحد
+                if (today.getDate() < 27) {
+                    monthDiff--;
+                }
+                
+                // إضافة الأقساط الشهرية المتتالية
+                for (let i = 1; i <= monthDiff; i++) {
+                    const nextMonth = new Date(initialDate);
+                    nextMonth.setMonth(initialDate.getMonth() + i);
+                    nextMonth.setDate(27);
+                    
+                    addInstallment(nextMonth);
+                }
+            }
+        }
+        
+        // إضافة دفعة
+        function addPayment() {
+            const paymentDate = document.getElementById('payment-date').value;
+            const paymentAmount = parseFloat(document.getElementById('payment-amount').value);
+            const paymentNotes = document.getElementById('payment-notes').value || 'دفعة نقدية';
+            const errorElement = document.getElementById('payment-error');
+            
+            // التحقق من صحة الإدخال
+            if (!paymentDate || isNaN(paymentAmount) || paymentAmount <= 0) {
+                errorElement.textContent = 'يرجى إدخال تاريخ ومبلغ صحيح للدفعة';
+                return;
+            }
+            
+            errorElement.textContent = '';
+            
+            // حساب المبالغ بعد الدفعة
+            let remainingPayment = paymentAmount;
+            let newMonthlyInstallment = currentMonthlyInstallment;
+            let newDebtArrears = currentDebtArrears;
+            
+            // تسديد القسط الشهري أولاً
+            if (remainingPayment > 0 && newMonthlyInstallment > 0) {
+                const monthlyPayment = Math.min(remainingPayment, newMonthlyInstallment);
+                newMonthlyInstallment -= monthlyPayment;
+                remainingPayment -= monthlyPayment;
+            }
+            
+            // ثم تسديد الدين المتأخر
+            if (remainingPayment > 0 && newDebtArrears > 0) {
+                const debtPayment = Math.min(remainingPayment, newDebtArrears);
+                newDebtArrears -= debtPayment;
+                remainingPayment -= debtPayment;
+            }
+            
+            // إضافة المعاملة
+            const transaction = {
+                id: transactions.length + 1,
+                date: formatDate(new Date(paymentDate)),
+                type: 'دفعة',
+                amount: -paymentAmount,
+                monthlyInstallment: newMonthlyInstallment,
+                debtArrears: newDebtArrears,
+                totalDue: newMonthlyInstallment + newDebtArrears,
+                notes: paymentNotes
+            };
+            
+            currentMonthlyInstallment = newMonthlyInstallment;
+            currentDebtArrears = newDebtArrears;
+            
+            transactions.push(transaction);
+            
+            // إعادة تعيين نموذج الإدخال
+            document.getElementById('payment-date').value = '';
+            document.getElementById('payment-amount').value = '';
+            document.getElementById('payment-notes').value = '';
+            
+            // تحديث الجدول والملخص
+            renderTransactions();
+            updateSummary();
+        }
+        
+        // عرض الأقساط المستقبلية
+        function generateFutureInstallments() {
+            // البحث عن آخر قسط شهري (غير مستقبلي)
+            let lastInstallmentDate = null;
+            for (let i = transactions.length - 1; i >= 0; i--) {
+                if (transactions[i].type === 'قسط شهري' && !transactions[i].isFuture) {
+                    const dateParts = transactions[i].date.split('/');
+                    lastInstallmentDate = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+                    break;
+                }
+            }
+            
+            if (!lastInstallmentDate) {
+                lastInstallmentDate = initialDate;
+            }
+            
+            // حذف أي أقساط مستقبلية سابقة
+            transactions = transactions.filter(t => !t.isFuture);
+            
+            // إضافة 6 أقساط مستقبلية
+            for (let i = 1; i <= 6; i++) {
+                const nextMonth = new Date(lastInstallmentDate);
+                nextMonth.setMonth(lastInstallmentDate.getMonth() + i);
+                nextMonth.setDate(27);
+                
+                addInstallment(nextMonth, false, true);
+            }
+            
+            renderTransactions();
+        }
+        
+        // عرض المعاملات في الجدول
+        function renderTransactions() {
+            const tableBody = document.getElementById('transactions-body');
+            tableBody.innerHTML = '';
+            
+            // ترتيب المعاملات حسب التاريخ
+            const sortedTransactions = [...transactions].sort((a, b) => {
+                const dateA = parseDate(a.date);
+                const dateB = parseDate(b.date);
+                return dateA - dateB;
+            });
+            
+            sortedTransactions.forEach(transaction => {
+                const row = document.createElement('tr');
+                
+                if (transaction.type === 'قسط شهري' && !transaction.isFuture) {
+                    row.classList.add('highlight');
+                } else if (transaction.isFuture) {
+                    row.classList.add('future-date');
+                }
+                
+                row.innerHTML = `
+                    <td>${transaction.id}</td>
+                    <td>${transaction.date}</td>
+                    <td>${transaction.type}</td>
+                    <td>${formatCurrency(Math.abs(transaction.amount))}</td>
+                    <td>${formatCurrency(transaction.monthlyInstallment)}</td>
+                    <td>${formatCurrency(transaction.debtArrears)}</td>
+                    <td>${formatCurrency(transaction.totalDue)}</td>
+                    <td>${transaction.notes}</td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+        }
+        
+        // تحديث ملخص الحساب
+        function updateSummary() {
+            document.getElementById('monthly-installment').textContent = formatCurrency(currentMonthlyInstallment);
+            document.getElementById('debt-arrears').textContent = formatCurrency(currentDebtArrears);
+            document.getElementById('total-due').textContent = formatCurrency(currentMonthlyInstallment + currentDebtArrears);
+        }
+        
+        // تنسيق التاريخ (يوم/شهر/سنة)
+        function formatDate(date) {
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+        
+        // تحويل التاريخ من النص إلى كائن Date
+        function parseDate(dateString) {
+            const parts = dateString.split('/');
+            return new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+        
+        // تنسيق المبلغ
+        function formatCurrency(amount) {
+            return amount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,') + ' ريال';
+        }
+        
+        // تحميل ملف اكسل
+        function downloadExcel() {
+            // إنشاء مصفوفة البيانات للإكسل
+            const excelData = [
+                ['نظام متابعة الأقساط والدين المتأخر'],
+                [],
+                ['ملخص الحساب'],
+                ['القسط الشهري الحالي', 'الدين المتأخر', 'إجمالي المبلغ المستحق'],
+                [currentMonthlyInstallment, currentDebtArrears, currentMonthlyInstallment + currentDebtArrears],
+                [],
+                ['سجل المعاملات'],
+                ['رقم المعاملة', 'التاريخ', 'النوع', 'المبلغ', 'القسط الشهري', 'الدين المتأخر', 'إجمالي المبلغ المستحق', 'ملاحظات']
+            ];
+            
+            // ترتيب المعاملات حسب التاريخ
+            const sortedTransactions = [...transactions].sort((a, b) => {
+                const dateA = parseDate(a.date);
+                const dateB = parseDate(b.date);
+                return dateA - dateB;
+            });
+            
+            // إضافة المعاملات إلى مصفوفة البيانات
+            sortedTransactions.forEach(transaction => {
+                excelData.push([
+                    transaction.id,
+                    transaction.date,
+                    transaction.type,
+                    Math.abs(transaction.amount),
+                    transaction.monthlyInstallment,
+                    transaction.debtArrears,
+                    transaction.totalDue,
+                    transaction.notes
+                ]);
+            });
+            
+            // إنشاء ورقة عمل
+            const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+            
+            // تنسيق الخلايا
+            worksheet['!cols'] = [
+                { wch: 10 }, // رقم المعاملة
+                { wch: 12 }, // التاريخ
+                { wch: 12 }, // النوع
+                { wch: 12 }, // المبلغ
+                { wch: 15 }, // القسط الشهري
+                { wch: 15 }, // الدين المتأخر
+                { wch: 18 }, // إجمالي المبلغ المستحق
+                { wch: 20 }  // ملاحظات
+            ];
+            
+            // إنشاء مصنّف عمل
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'متابعة الأقساط');
+            
+            // تحميل الملف
+            XLSX.writeFile(workbook, 'نظام_متابعة_الأقساط_والدين_المتأخر.xlsx');
+        }
+        
+        // طباعة التقرير
+        function printReport() {
+            window.print();
+        }
+    </script>
+</body>
+</html>
